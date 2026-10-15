@@ -12,6 +12,7 @@
 #include "chad/lang/ast.h"
 #include "chad/lang/lexer.h"
 #include "chad/lang/parser.h"
+#include "chad/lang/syntax.h"
 #include "prelude.h"
 
 namespace chad {
@@ -31,15 +32,13 @@ struct Scope {
 class Compiler {
 public:
     Compiler() {
-        addBuiltin("number", 1, 0);
-        addBuiltin("World", 0, 0);
-        addBuiltin("Rep", 0, 2);
-        addBuiltin("Ghost", 0, 0);
-        addBuiltin("Say", 1, 1);
-        addBuiltin("Hear", 0, 2);
-        addBuiltin("Silence", 0, 0);
-        addBuiltin("Cons", 0, 2);
-        addBuiltin("Nil", 0, 0);
+        for (const BuiltinBreed& builtin : BUILTIN_BREEDS) {
+            const std::string name(builtin.name);
+            if (program.breeds.size() != breed::Number) {
+                breedIds.emplace(name, program.breeds.size());
+            }
+            program.breeds.push_back({name, builtin.valueCount, builtin.armCount, 0});
+        }
     }
 
     void addPreludeRules(const ast::Source& source, int lineOffset) {
@@ -79,7 +78,7 @@ public:
     // every use of a breed must have the same number of values and arms as the first one
     Breed breedFor(const std::string& name, std::size_t valueCount, std::size_t armCount, int line) {
         line = at(line);
-        if (name == "World") throw errorAt(line, "`World` belongs to the runtime", "your program gets it through the `world` wire in `main`");
+        if (name == BUILTIN_BREEDS[breed::World].name) throw errorAt(line, "`World` belongs to the runtime", "your program gets it through the `world` wire in `main`");
 
         const auto found = breedIds.find(name);
         if (found == breedIds.end()) {
@@ -113,9 +112,9 @@ public:
                     code.kind = Code::Kind::Slot;
                     code.slot = value->second;
                     return code;
-                } else if (expr.name == "_") {
+                } else if (expr.name == IGNORED_NAME) {
                     throw errorAt(code.line, "`_` only works in rule heads");
-                } else if (scope.outside.count(expr.name) != 0 || expr.name == "world") {
+                } else if (scope.outside.count(expr.name) != 0 || expr.name == WORLD_WIRE) {
                     throw errorAt(code.line, "`" + expr.name + "` is a wire, not a value", "values are the names in `[ ]` or a number in the rule head");
                 }
                 throw errorAt(code.line, "unknown value `" + expr.name + "`");
@@ -140,13 +139,6 @@ private:
     bool inPrelude = false;
     int preludeOffset = 0;
 
-    void addBuiltin(const std::string& name, std::size_t valueCount, std::size_t armCount) {
-        if (name != "number") {
-            breedIds.emplace(name, program.breeds.size());
-        }
-        program.breeds.push_back({name, valueCount, armCount, 0});
-    }
-
     Breed patternBreed(const ast::Pattern& pattern) {
         if (pattern.isNumber) return breed::Number;
         return breedFor(pattern.breed, pattern.values.size(), pattern.arms.size(), pattern.line);
@@ -154,17 +146,17 @@ private:
 
     void bind(const ast::Pattern& pattern, Scope& scope) const {
         for (const std::string& name : pattern.values) {
-            if (name != "_") {
+            if (name != IGNORED_NAME) {
                 scope.values.emplace(name, scope.valueCount);
             }
             scope.valueCount++;
         }
 
         for (const std::string& name : pattern.arms) {
-            if (name == "_") {
+            if (name == IGNORED_NAME) {
                 throw errorAt(at(pattern.line), "an arm can't be `_`", "every wire needs two ends; to drop something, wire it to `Ghost`");
             }
-            if (name == "world") throw errorAt(at(pattern.line), "`world` only exists in `main`", "pass the World along through arms, like `Print(w, next)`");
+            if (name == WORLD_WIRE) throw errorAt(at(pattern.line), "`world` only exists in `main`", "pass the World along through arms, like `Print(w, next)`");
             scope.outside.emplace(name, scope.outsideCount++);
         }
     }
@@ -312,7 +304,7 @@ private:
 
     Placed placeName(const ast::Term& term) {
         const std::string& name = term.name;
-        if (name == "_") throw errorAt(compiler.at(term.line), "`_` only works in rule heads");
+        if (name == IGNORED_NAME) throw errorAt(compiler.at(term.line), "`_` only works in rule heads");
 
         const auto value = scope.values.find(name);
         if (value != scope.values.end()) {
@@ -323,7 +315,7 @@ private:
             return endPlaced(face(numberChad(std::move(code), term.line)));
         }
 
-        if (name == "world") {
+        if (name == WORLD_WIRE) {
             if (!scope.inMain) throw errorAt(compiler.at(term.line), "`world` only exists in `main`", "pass the World along through arms, like `Print(w, next)`");
 
             if (!hasWorld) {

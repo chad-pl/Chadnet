@@ -1,10 +1,12 @@
 #include "chad/lang/lexer.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "chad/core/error.h"
 #include "chad/core/text.h"
+#include "chad/lang/syntax.h"
 #include "chad/lang/token.h"
 #include "chad/runtime/utf8.h"
 
@@ -12,13 +14,7 @@ namespace chad {
 
 namespace {
 
-const std::string COMMENT_WORD = "ngl";
 const std::string UTF8_BOM = "\xEF\xBB\xBF"; // some editors (notepad) put these bytes to mark UTF-8
-
-// 2 character symbols first so `=>` isn't read as `=` then `>`
-const char* const SYMBOLS[] = {
-    "=>", "==", "!=", "<=", ">=",
-    "(", ")", "[", "]", ",", "~", "+", "-", "*", "/", "%", "<", ">"};
 
 bool isNameStart(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
@@ -101,6 +97,12 @@ private:
             while (!atLineEnd()) {
                 ++index;
             }
+            return;
+        }
+
+        const std::optional<Keyword> keyword = findKeyword(text);
+        if (keyword) {
+            push(TokenKind::Keyword, std::move(text)).keyword = *keyword;
             return;
         }
 
@@ -217,18 +219,18 @@ private:
     }
 
     void symbol() {
-        for (const std::string symbol : SYMBOLS) {
-            if (source.compare(index, symbol.size(), symbol) != 0) continue;
+        for (const auto& [symbol, text] : SYMBOLS) {
+            if (source.compare(index, text.size(), text) != 0) continue;
 
-            if (symbol == "(" || symbol == "[") {
+            if (symbol == Symbol::LeftParen || symbol == Symbol::LeftBracket) {
                 ++depth;
-            } else if ((symbol == ")" || symbol == "]") && depth > 0) {
+            } else if ((symbol == Symbol::RightParen || symbol == Symbol::RightBracket) && depth > 0) {
                 --depth;
             }
 
-            index += symbol.size();
+            index += text.size();
 
-            push(TokenKind::Symbol, symbol);
+            push(TokenKind::Symbol, std::string(text)).symbol = symbol;
 
             return;
         }

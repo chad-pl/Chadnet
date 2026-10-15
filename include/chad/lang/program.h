@@ -2,7 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -24,6 +26,25 @@ constexpr Breed Silence = 6;
 constexpr Breed Cons = 7;
 constexpr Breed Nil = 8;
 }
+
+struct BuiltinBreed {
+    std::string_view name;
+    std::size_t valueCount;
+    std::size_t armCount;
+};
+
+// in id order
+constexpr BuiltinBreed BUILTIN_BREEDS[] = {
+    {"number", 1, 0},
+    {"World", 0, 0},
+    {"Rep", 0, 2},
+    {"Ghost", 0, 0},
+    {"Say", 1, 1},
+    {"Hear", 0, 2},
+    {"Silence", 0, 0},
+    {"Cons", 0, 2},
+    {"Nil", 0, 0},
+};
 
 struct BreedInfo {
     std::string name;

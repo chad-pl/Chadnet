@@ -1,10 +1,12 @@
 #include "chad/lang/parser.h"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <utility>
 
 #include "chad/core/error.h"
+#include "chad/lang/syntax.h"
 
 namespace chad {
 
@@ -12,9 +14,30 @@ namespace {
 
 using namespace ast;
 
-bool isKeyword(const std::string& word) {
-    return word == "main" || word == "vs" || word == "if" || word == "else" || word == "and" || word == "or" || word == "not";
-}
+struct OperatorSymbol {
+    Symbol symbol;
+    Operator op;
+};
+
+constexpr OperatorSymbol COMPARISONS[] = {
+    {Symbol::Eq, Operator::Eq},
+    {Symbol::Ne, Operator::Ne},
+    {Symbol::Lt, Operator::Lt},
+    {Symbol::Gt, Operator::Gt},
+    {Symbol::Le, Operator::Le},
+    {Symbol::Ge, Operator::Ge},
+};
+
+constexpr OperatorSymbol SUMS[] = {
+    {Symbol::Plus, Operator::Add},
+    {Symbol::Minus, Operator::Sub},
+};
+
+constexpr OperatorSymbol PRODUCTS[] = {
+    {Symbol::Star, Operator::Mul},
+    {Symbol::Slash, Operator::Div},
+    {Symbol::Percent, Operator::Mod},
+};
 
 Expr unary(Operator op, Expr operand, int line) {
     Expr expr;
@@ -43,7 +66,7 @@ public:
         skipNewlines();
 
         while (!atEnd()) {
-            if (isWord("main")) {
+            if (isKeyword(Keyword::Main)) {
                 parseMain();
             } else {
                 parseRule();
@@ -69,15 +92,24 @@ private:
         return peek().kind == TokenKind::End;
     }
 
-    bool isSymbol(const char* symbol) const {
-        return peek().kind == TokenKind::Symbol && peek().text == symbol;
+    bool isSymbol(Symbol symbol) const {
+        return peek().kind == TokenKind::Symbol && peek().symbol == symbol;
     }
 
-    bool isWord(const char* word) const {
-        return peek().kind == TokenKind::Name && peek().text == word;
+    bool isKeyword(Keyword keyword) const {
+        return peek().kind == TokenKind::Keyword && peek().keyword == keyword;
     }
 
-    bool acceptSymbol(const char* symbol) {
+    // the operator for the next token if it is one of these
+    template <std::size_t N>
+    std::optional<Operator> peekOperator(const OperatorSymbol (&operators)[N]) const {
+        for (const auto& [symbol, op] : operators) {
+            if (isSymbol(symbol)) return op;
+        }
+        return std::nullopt;
+    }
+
+    bool acceptSymbol(Symbol symbol) {
         if (!isSymbol(symbol)) return false;
         ++pos;
         return true;
@@ -87,8 +119,8 @@ private:
         throw errorAt(peek().line, "expected " + wanted, "got " + describe(peek()));
     }
 
-    void expectSymbol(const char* symbol) {
-        if (!acceptSymbol(symbol)) fail(std::string("`") + symbol + "`");
+    void expectSymbol(Symbol symbol) {
+        if (!acceptSymbol(symbol)) fail("`" + std::string(spelling(symbol)) + "`");
     }
 
     void skipNewlines() {
@@ -103,13 +135,13 @@ private:
 
     bool lineHasVs() const {
         for (std::size_t i = pos; tokens[i].kind != TokenKind::Newline && tokens[i].kind != TokenKind::End; ++i) {
-            if (tokens[i].kind == TokenKind::Name && tokens[i].text == "vs") return true;
+            if (tokens[i].kind == TokenKind::Keyword && tokens[i].keyword == Keyword::Vs) return true;
         }
         return false;
     }
 
     std::string takeName(const std::string& wanted) {
-        if (peek().kind != TokenKind::Name || isKeyword(peek().text)) fail(wanted);
+        if (peek().kind != TokenKind::Name) fail(wanted);
         return tokens[pos++].text;
     }
 
@@ -127,7 +159,7 @@ private:
         while (true) {
             skipNewlines();
 
-            if (atEnd() || isWord("main")) break;
+            if (atEnd() || isKeyword(Keyword::Main)) break;
             if (lineHasVs()) throw errorAt(peek().line, "rule after `main`", "rules go before `main`, which runs to the end of the file");
 
             for (Connection& connection : parseConnections()) {
@@ -144,16 +176,16 @@ private:
         rule.line = peek().line;
         rule.left = parsePattern();
 
-        if (!isWord("vs")) fail("`vs`");
+        if (!isKeyword(Keyword::Vs)) fail("`vs`");
         ++pos;
         rule.right = parsePattern();
 
-        if (!isSymbol("=>")) {
+        if (!isSymbol(Symbol::Arrow)) {
             expectLineEnd();
             skipNewlines();
         }
 
-        if (acceptSymbol("=>")) {
+        if (acceptSymbol(Symbol::Arrow)) {
             Case single;
             single.line = rule.line;
             skipNewlines();
@@ -164,13 +196,13 @@ private:
             return;
         }
 
-        if (!isWord("if") && !isWord("else")) fail("`=>` or an `if` case");
+        if (!isKeyword(Keyword::If) && !isKeyword(Keyword::Else)) fail("`=>` or an `if` case");
 
-        while (isWord("if") || isWord("else")) {
+        while (isKeyword(Keyword::If) || isKeyword(Keyword::Else)) {
             Case branch;
             branch.line = peek().line;
 
-            const bool isElse = isWord("else");
+            const bool isElse = isKeyword(Keyword::Else);
             ++pos;
 
             if (!isElse) {
@@ -178,7 +210,7 @@ private:
                 branch.condition = parseExpr();
             }
 
-            expectSymbol("=>");
+            expectSymbol(Symbol::Arrow);
             skipNewlines();
             branch.connections = parseConnections();
             expectLineEnd();
@@ -186,7 +218,7 @@ private:
             skipNewlines();
 
             if (isElse) {
-                if (isWord("if") || isWord("else")) {
+                if (isKeyword(Keyword::If) || isKeyword(Keyword::Else)) {
                     throw errorAt(peek().line, "case after `else`", "`else` has to be the last case");
                 }
                 break;
@@ -201,7 +233,7 @@ private:
         Pattern pattern;
         pattern.line = peek().line;
 
-        if (peek().kind == TokenKind::Name && !isKeyword(peek().text)) {
+        if (peek().kind == TokenKind::Name) {
             pattern.isNumber = true;
             pattern.values.push_back(tokens[pos++].text);
             return pattern;
@@ -210,18 +242,18 @@ private:
         if (peek().kind != TokenKind::Breed) fail("a Chad to match, like `Fib(r)` or `n`");
 
         pattern.breed = tokens[pos++].text;
-        if (acceptSymbol("[")) {
+        if (acceptSymbol(Symbol::LeftBracket)) {
             do {
                 pattern.values.push_back(takeName("a value name"));
-            } while (acceptSymbol(","));
-            expectSymbol("]");
+            } while (acceptSymbol(Symbol::Comma));
+            expectSymbol(Symbol::RightBracket);
         }
 
-        if (acceptSymbol("(") && !acceptSymbol(")")) {
+        if (acceptSymbol(Symbol::LeftParen) && !acceptSymbol(Symbol::RightParen)) {
             do {
                 pattern.arms.push_back(takeName("a wire name"));
-            } while (acceptSymbol(","));
-            expectSymbol(")");
+            } while (acceptSymbol(Symbol::Comma));
+            expectSymbol(Symbol::RightParen);
         }
 
         return pattern;
@@ -237,11 +269,11 @@ private:
             Connection connection;
             connection.line = peek().line;
             connection.left = parseTerm();
-            expectSymbol("~");
+            expectSymbol(Symbol::Tilde);
             skipNewlines();
             connection.right = parseTerm();
             connections.push_back(std::move(connection));
-        } while (acceptSymbol(","));
+        } while (acceptSymbol(Symbol::Comma));
 
         return connections;
     }
@@ -254,18 +286,18 @@ private:
             term.kind = TermKind::Chad;
             term.name = tokens[pos++].text;
 
-            if (acceptSymbol("[")) {
+            if (acceptSymbol(Symbol::LeftBracket)) {
                 do {
                     term.values.push_back(parseExpr());
-                } while (acceptSymbol(","));
-                expectSymbol("]");
+                } while (acceptSymbol(Symbol::Comma));
+                expectSymbol(Symbol::RightBracket);
             }
 
-            if (acceptSymbol("(") && !acceptSymbol(")")) {
+            if (acceptSymbol(Symbol::LeftParen) && !acceptSymbol(Symbol::RightParen)) {
                 do {
                     term.arms.push_back(parseTerm());
-                } while (acceptSymbol(","));
-                expectSymbol(")");
+                } while (acceptSymbol(Symbol::Comma));
+                expectSymbol(Symbol::RightParen);
             }
 
             return term;
@@ -292,7 +324,7 @@ private:
     // lowest to highest: or, and, not, comparisons, + -, * / %, unary -
     Expr parseExpr() {
         Expr left = parseAnd();
-        while (isWord("or")) {
+        while (isKeyword(Keyword::Or)) {
             const int line = tokens[pos++].line;
             left = binary(Operator::Or, std::move(left), parseAnd(), line);
         }
@@ -301,7 +333,7 @@ private:
 
     Expr parseAnd() {
         Expr left = parseNot();
-        while (isWord("and")) {
+        while (isKeyword(Keyword::And)) {
             const int line = tokens[pos++].line;
             left = binary(Operator::And, std::move(left), parseNot(), line);
         }
@@ -309,7 +341,7 @@ private:
     }
 
     Expr parseNot() {
-        if (isWord("not")) {
+        if (isKeyword(Keyword::Not)) {
             const int line = tokens[pos++].line;
             return unary(Operator::Not, parseNot(), line);
         }
@@ -319,19 +351,9 @@ private:
     Expr parseComparison() {
         Expr left = parseSum();
 
-        const std::pair<const char*, Operator> comparisons[] = {
-            {"==", Operator::Eq},
-            {"!=", Operator::Ne},
-            {"<", Operator::Lt},
-            {">", Operator::Gt},
-            {"<=", Operator::Le},
-            {">=", Operator::Ge},
-        };
-        for (const auto& [symbol, op] : comparisons) {
-            if (isSymbol(symbol)) {
-                const int line = tokens[pos++].line;
-                return binary(op, std::move(left), parseSum(), line);
-            }
+        if (const std::optional<Operator> op = peekOperator(COMPARISONS)) {
+            const int line = tokens[pos++].line;
+            return binary(*op, std::move(left), parseSum(), line);
         }
 
         return left;
@@ -339,26 +361,24 @@ private:
 
     Expr parseSum() {
         Expr left = parseProduct();
-        while (isSymbol("+") || isSymbol("-")) {
-            const Operator op = isSymbol("+") ? Operator::Add : Operator::Sub;
+        while (const std::optional<Operator> op = peekOperator(SUMS)) {
             const int line = tokens[pos++].line;
-            left = binary(op, std::move(left), parseProduct(), line);
+            left = binary(*op, std::move(left), parseProduct(), line);
         }
         return left;
     }
 
     Expr parseProduct() {
         Expr left = parseUnary();
-        while (isSymbol("*") || isSymbol("/") || isSymbol("%")) {
-            const Operator op = isSymbol("*") ? Operator::Mul : (isSymbol("/") ? Operator::Div : Operator::Mod);
+        while (const std::optional<Operator> op = peekOperator(PRODUCTS)) {
             const int line = tokens[pos++].line;
-            left = binary(op, std::move(left), parseUnary(), line);
+            left = binary(*op, std::move(left), parseUnary(), line);
         }
         return left;
     }
 
     Expr parseUnary() {
-        if (isSymbol("-")) {
+        if (isSymbol(Symbol::Minus)) {
             const int line = tokens[pos++].line;
             return unary(Operator::Negate, parseUnary(), line);
         }
@@ -375,9 +395,9 @@ private:
             return expr;
         }
 
-        if (acceptSymbol("(")) {
+        if (acceptSymbol(Symbol::LeftParen)) {
             expr = parseExpr();
-            expectSymbol(")");
+            expectSymbol(Symbol::RightParen);
             return expr;
         }
 

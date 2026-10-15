@@ -16,6 +16,7 @@ add_library(chad_core
     core/text.cpp
     lang/lexer.cpp
     lang/parser.cpp
+    lang/syntax.cpp
     lang/compile.cpp
     net/engine.cpp
     net/expr.cpp
