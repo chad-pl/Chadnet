@@ -73,6 +73,16 @@ struct Token {
     const T* as() const {
         return std::get_if<T>(&data);
     }
+
+    bool is(Keyword keyword) const {
+        const auto* found = as<token::Keyword>();
+        return found != nullptr && found->keyword == keyword;
+    }
+
+    bool is(Symbol symbol) const {
+        const auto* found = as<token::Symbol>();
+        return found != nullptr && found->symbol == symbol;
+    }
 };
 
 using TokenList = std::vector<Token>;

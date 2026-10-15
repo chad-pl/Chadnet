@@ -93,17 +93,11 @@ private:
     }
 
     bool isSymbol(Symbol symbol) const {
-        const auto* found = peek().as<token::Symbol>();
-        return found != nullptr && found->symbol == symbol;
+        return peek().is(symbol);
     }
 
     bool isKeyword(Keyword keyword) const {
-        return isKeyword(peek(), keyword);
-    }
-
-    static bool isKeyword(const Token& token, Keyword keyword) {
-        const auto* found = token.as<token::Keyword>();
-        return found != nullptr && found->keyword == keyword;
+        return peek().is(keyword);
     }
 
     // the operator for the next token if it is one of these
@@ -141,7 +135,7 @@ private:
 
     bool lineHasVs() const {
         for (std::size_t i = pos; !tokens[i].is<token::Newline>() && !tokens[i].is<token::End>(); ++i) {
-            if (isKeyword(tokens[i], Keyword::Vs)) return true;
+            if (tokens[i].is(Keyword::Vs)) return true;
         }
         return false;
     }
