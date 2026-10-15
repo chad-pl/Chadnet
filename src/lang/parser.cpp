@@ -89,15 +89,21 @@ private:
     }
 
     bool atEnd() const {
-        return peek().kind == TokenKind::End;
+        return peek().is<token::End>();
     }
 
     bool isSymbol(Symbol symbol) const {
-        return peek().kind == TokenKind::Symbol && peek().symbol == symbol;
+        const auto* found = peek().as<token::Symbol>();
+        return found != nullptr && found->symbol == symbol;
     }
 
     bool isKeyword(Keyword keyword) const {
-        return peek().kind == TokenKind::Keyword && peek().keyword == keyword;
+        return isKeyword(peek(), keyword);
+    }
+
+    static bool isKeyword(const Token& token, Keyword keyword) {
+        const auto* found = token.as<token::Keyword>();
+        return found != nullptr && found->keyword == keyword;
     }
 
     // the operator for the next token if it is one of these
@@ -124,25 +130,27 @@ private:
     }
 
     void skipNewlines() {
-        while (peek().kind == TokenKind::Newline) {
+        while (peek().is<token::Newline>()) {
             ++pos;
         }
     }
 
     void expectLineEnd() const {
-        if (peek().kind != TokenKind::Newline && !atEnd()) fail("the end of the line");
+        if (!peek().is<token::Newline>() && !atEnd()) fail("the end of the line");
     }
 
     bool lineHasVs() const {
-        for (std::size_t i = pos; tokens[i].kind != TokenKind::Newline && tokens[i].kind != TokenKind::End; ++i) {
-            if (tokens[i].kind == TokenKind::Keyword && tokens[i].keyword == Keyword::Vs) return true;
+        for (std::size_t i = pos; !tokens[i].is<token::Newline>() && !tokens[i].is<token::End>(); ++i) {
+            if (isKeyword(tokens[i], Keyword::Vs)) return true;
         }
         return false;
     }
 
     std::string takeName(const std::string& wanted) {
-        if (peek().kind != TokenKind::Name) fail(wanted);
-        return tokens[pos++].text;
+        const auto* name = peek().as<token::Name>();
+        if (name == nullptr) fail(wanted);
+        ++pos;
+        return name->name;
     }
 
     // main until the end of the file
@@ -233,15 +241,18 @@ private:
         Pattern pattern;
         pattern.line = peek().line;
 
-        if (peek().kind == TokenKind::Name) {
+        if (const auto* name = peek().as<token::Name>()) {
+            ++pos;
             pattern.isNumber = true;
-            pattern.values.push_back(tokens[pos++].text);
+            pattern.values.push_back(name->name);
             return pattern;
         }
 
-        if (peek().kind != TokenKind::Breed) fail("a Chad to match, like `Fib(r)` or `n`");
+        const auto* breed = peek().as<token::Breed>();
+        if (breed == nullptr) fail("a Chad to match, like `Fib(r)` or `n`");
 
-        pattern.breed = tokens[pos++].text;
+        ++pos;
+        pattern.breed = breed->name;
         if (acceptSymbol(Symbol::LeftBracket)) {
             do {
                 pattern.values.push_back(takeName("a value name"));
@@ -282,9 +293,10 @@ private:
         Term term;
         term.line = peek().line;
 
-        if (peek().kind == TokenKind::Breed) {
+        if (const auto* breed = peek().as<token::Breed>()) {
+            ++pos;
             term.kind = TermKind::Chad;
-            term.name = tokens[pos++].text;
+            term.name = breed->name;
 
             if (acceptSymbol(Symbol::LeftBracket)) {
                 do {
@@ -303,9 +315,10 @@ private:
             return term;
         }
 
-        if (peek().kind == TokenKind::String) {
+        if (const auto* string = peek().as<token::String>()) {
+            ++pos;
             term.kind = TermKind::String;
-            term.text = tokens[pos++].chars;
+            term.text = string->chars;
             return term;
         }
 
@@ -389,9 +402,17 @@ private:
         Expr expr;
         expr.line = peek().line;
 
-        if (peek().kind == TokenKind::Number || peek().kind == TokenKind::Char) {
+        if (const auto* number = peek().as<token::Number>()) {
+            ++pos;
             expr.kind = ExprKind::Number;
-            expr.number = tokens[pos++].value;
+            expr.number = number->value;
+            return expr;
+        }
+
+        if (const auto* character = peek().as<token::Char>()) {
+            ++pos;
+            expr.kind = ExprKind::Number;
+            expr.number = character->value;
             return expr;
         }
 

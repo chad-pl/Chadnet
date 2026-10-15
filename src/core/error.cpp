@@ -1,6 +1,10 @@
 #include "chad/core/error.h"
 
+#include <string>
+#include <variant>
+
 #include "chad/core/text.h"
+#include "chad/lang/syntax.h"
 #include "prelude.h"
 
 namespace chad {
@@ -45,17 +49,55 @@ std::string shape(std::size_t values, std::size_t arms) {
     return plural(values, "value") + " and " + plural(arms, "arm");
 }
 
-std::string describe(const Token& token) {
-    switch (token.kind) {
-        case TokenKind::End:
-            return "the end of the file";
-        case TokenKind::Newline:
-            return "the end of the line";
-        case TokenKind::String:
-            return "a string";
-        default:
-            return "`" + token.text + "`";
+namespace {
+
+// one overload per token kind, so a new kind without a description doesn't compile
+struct TokenDescriber {
+    std::string operator()(const token::Breed& breed) const {
+        return quoted(breed.name);
     }
+
+    std::string operator()(const token::Name& name) const {
+        return quoted(name.name);
+    }
+
+    std::string operator()(const token::Keyword& keyword) const {
+        return quoted(std::string(spelling(keyword.keyword)));
+    }
+
+    std::string operator()(const token::Symbol& symbol) const {
+        return quoted(std::string(spelling(symbol.symbol)));
+    }
+
+    std::string operator()(const token::Number& number) const {
+        return quoted(number.text);
+    }
+
+    std::string operator()(const token::Char& character) const {
+        return quoted(character.text);
+    }
+
+    std::string operator()(const token::String&) const {
+        return "a string";
+    }
+
+    std::string operator()(const token::Newline&) const {
+        return "the end of the line";
+    }
+
+    std::string operator()(const token::End&) const {
+        return "the end of the file";
+    }
+
+    static std::string quoted(const std::string& text) {
+        return "`" + text + "`";
+    }
+};
+
+}
+
+std::string describe(const Token& token) {
+    return std::visit(TokenDescriber{}, token.data);
 }
 
 }

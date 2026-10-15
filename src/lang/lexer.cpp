@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "chad/core/error.h"
 #include "chad/core/text.h"
@@ -52,7 +54,7 @@ public:
             }
         }
 
-        push(TokenKind::End, "");
+        push(token::End{});
         return tokens;
     }
 
@@ -63,13 +65,8 @@ private:
     int depth = 0; // open ( and [ where a line break doesn't end anything
     TokenList tokens;
 
-    Token& push(TokenKind kind, std::string text) {
-        Token token;
-        token.kind = kind;
-        token.text = std::move(text);
-        token.line = line;
-        tokens.push_back(std::move(token));
-        return tokens.back();
+    void push(TokenData data) {
+        tokens.push_back(Token{std::move(data), line});
     }
 
     bool atLineEnd() const {
@@ -80,8 +77,8 @@ private:
         const bool windowsLineEnd = source[index] == '\r' && index + 1 < source.size() && source[index + 1] == '\n';
         index += windowsLineEnd ? 2 : 1;
 
-        if (depth == 0 && !tokens.empty() && tokens.back().kind != TokenKind::Newline) {
-            push(TokenKind::Newline, "");
+        if (depth == 0 && !tokens.empty() && !tokens.back().is<token::Newline>()) {
+            push(token::Newline{});
         }
         ++line;
     }
@@ -102,12 +99,12 @@ private:
 
         const std::optional<Keyword> keyword = findKeyword(text);
         if (keyword) {
-            push(TokenKind::Keyword, std::move(text)).keyword = *keyword;
-            return;
+            push(token::Keyword{*keyword});
+        } else if (text[0] >= 'A' && text[0] <= 'Z') {
+            push(token::Breed{std::move(text)});
+        } else {
+            push(token::Name{std::move(text)});
         }
-
-        const bool capital = text[0] >= 'A' && text[0] <= 'Z';
-        push(capital ? TokenKind::Breed : TokenKind::Name, std::move(text));
     }
 
     void number() {
@@ -126,7 +123,7 @@ private:
             throw errorAt(line, "bad number `" + source.substr(start, index - start) + "`", "names can't start with a digit");
         }
 
-        push(TokenKind::Number, source.substr(start, index - start)).value = static_cast<std::int64_t>(value);
+        push(token::Number{static_cast<std::int64_t>(value), source.substr(start, index - start)});
     }
 
     void character() {
@@ -141,7 +138,7 @@ private:
         }
         ++index;
 
-        push(TokenKind::Char, source.substr(start, index - start)).value = value;
+        push(token::Char{value, source.substr(start, index - start)});
     }
 
     void string() {
@@ -158,7 +155,7 @@ private:
 
         ++index;
 
-        push(TokenKind::String, source.substr(start, index - start)).chars = std::move(chars);
+        push(token::String{std::move(chars), source.substr(start, index - start)});
     }
 
     // one character inside a '' or "" literal, escapes included
@@ -230,7 +227,7 @@ private:
 
             index += text.size();
 
-            push(TokenKind::Symbol, std::string(text)).symbol = symbol;
+            push(token::Symbol{symbol});
 
             return;
         }
